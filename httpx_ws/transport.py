@@ -216,6 +216,7 @@ class ASGIWebSocketTransport(ASGITransport):
             if line.strip() != ""
         ]
 
+        assert self.exit_stack is not None
         await self.exit_stack.aclose()
         self.exit_stack = None
 
