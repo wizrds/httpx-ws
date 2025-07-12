@@ -203,7 +203,7 @@ class ASGIWebSocketTransport(ASGITransport):
         assert isinstance(request.stream, AsyncByteStream)
 
         self.scope = scope
-        async with ASGIWebSocketAsyncNetworkStream(self.app, self.scope) as s:
+        async with ASGIWebSocketAsyncNetworkStream(self.app, self.scope) as s:  # type: ignore[arg-type]
             stream, accept_response = s
             accept_response_lines = accept_response.decode("utf-8").splitlines()
             headers = [
