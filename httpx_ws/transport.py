@@ -203,29 +203,17 @@ class ASGIWebSocketTransport(ASGITransport):
         assert isinstance(request.stream, AsyncByteStream)
 
         self.scope = scope
-        async with contextlib.AsyncExitStack() as stack:
-            stream, accept_response = await stack.enter_async_context(
-                ASGIWebSocketAsyncNetworkStream(self.app, self.scope)  # type: ignore[arg-type]
+        async with ASGIWebSocketAsyncNetworkStream(self.app, self.scope) as s:
+            stream, accept_response = s
+            accept_response_lines = accept_response.decode("utf-8").splitlines()
+            headers = [
+                typing.cast(tuple[str, str], line.split(": ", 1))
+                for line in accept_response_lines[1:]
+                if line.strip() != ""
+            ]
+
+            return Response(
+                status_code=101,
+                headers=headers,
+                extensions={"network_stream": stream},
             )
-            self.exit_stack = stack.pop_all()
-
-        accept_response_lines = accept_response.decode("utf-8").splitlines()
-        headers = [
-            typing.cast(tuple[str, str], line.split(": ", 1))
-            for line in accept_response_lines[1:]
-            if line.strip() != ""
-        ]
-
-        assert self.exit_stack is not None
-        await self.exit_stack.aclose()
-        self.exit_stack = None
-
-        return Response(
-            status_code=101,
-            headers=headers,
-            extensions={"network_stream": stream},
-        )
-
-    async def aclose(self) -> None:
-        if self.exit_stack:
-            await self.exit_stack.aclose()
