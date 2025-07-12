@@ -39,7 +39,6 @@ class ASGIWebSocketAsyncNetworkStream(AsyncNetworkStream):
         self._send_queue: queue.Queue[Message] = queue.Queue()
         self.connection = wsproto.WSConnection(wsproto.ConnectionType.SERVER)
         self.connection.initiate_upgrade_connection(scope["headers"], scope["path"])
-        self._exit_stack = contextlib.AsyncExitStack()
         self._aentered = False
 
     async def __aenter__(
@@ -62,7 +61,7 @@ class ASGIWebSocketAsyncNetworkStream(AsyncNetworkStream):
             stack.push_async_callback(self.aclose)
 
             if message["type"] == "websocket.close":
-                await stack.aclose()
+                await stack.pop_all().aclose()
                 raise WebSocketDisconnect(message["code"], message.get("reason"))
 
             assert message["type"] == "websocket.accept"
@@ -204,10 +203,11 @@ class ASGIWebSocketTransport(ASGITransport):
         assert isinstance(request.stream, AsyncByteStream)
 
         self.scope = scope
-        self.exit_stack = contextlib.AsyncExitStack()
-        stream, accept_response = await self.exit_stack.enter_async_context(
-            ASGIWebSocketAsyncNetworkStream(self.app, self.scope)  # type: ignore[arg-type]
-        )
+        async with contextlib.AsyncExitStack() as stack:
+            stream, accept_response = await stack.enter_async_context(
+                ASGIWebSocketAsyncNetworkStream(self.app, self.scope)  # type: ignore[arg-type]
+            )
+            self.exit_stack = stack.pop_all()
 
         accept_response_lines = accept_response.decode("utf-8").splitlines()
         headers = [
@@ -215,6 +215,9 @@ class ASGIWebSocketTransport(ASGITransport):
             for line in accept_response_lines[1:]
             if line.strip() != ""
         ]
+
+        await self.exit_stack.aclose()
+        self.exit_stack = None
 
         return Response(
             status_code=101,
