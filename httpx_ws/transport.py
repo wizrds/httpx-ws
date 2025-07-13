@@ -180,8 +180,8 @@ class ASGIWebSocketTransport(ASGITransport):
     async def __aexit__(
         self,
         exc_type: type[BaseException] | None = None,
-        exc_value: BaseException | None = None,
-        traceback: TracebackType | None = None,
+        exc_val: BaseException | None = None,
+        exc_tb: TracebackType | None = None,
     ) -> None:
         await super().__aexit__(exc_type, exc_val, exc_tb)
         await self.exit_stack.__aexit__(exc_type, exc_val, exc_tb)
