@@ -153,7 +153,7 @@ class TestASGIWebSocketAsyncNetworkStream:
                 create_task_group() as tg,
                 ASGIWebSocketAsyncNetworkStream(app, scope, tg),
             ):
-                    pass
+                pass
         assert excinfo.group_contains(WebSocketDisconnect)
         assert excinfo.value.exceptions[0].code == 1011
         assert excinfo.value.exceptions[0].reason == "Error"

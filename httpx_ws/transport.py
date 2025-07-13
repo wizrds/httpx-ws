@@ -32,7 +32,9 @@ class UnhandledWebSocketEvent(ASGIWebSocketTransportError):
 
 
 class ASGIWebSocketAsyncNetworkStream(AsyncNetworkStream):
-    def __init__(self, app: ASGIApp, scope: Scope, task_group: anyio.abc.TaskGroup) -> None:
+    def __init__(
+        self, app: ASGIApp, scope: Scope, task_group: anyio.abc.TaskGroup
+    ) -> None:
         self.app = app
         self.scope = scope
         self._task_group = task_group
