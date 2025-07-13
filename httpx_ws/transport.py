@@ -179,9 +179,9 @@ class ASGIWebSocketTransport(ASGITransport):
 
     async def __aexit__(
         self,
-        exc_type: type[BaseException] | None = None,
-        exc_val: BaseException | None = None,
-        exc_tb: TracebackType | None = None,
+        exc_type: typing.Optional[type[BaseException]] = None,
+        exc_val: typing.Optional[BaseException] = None,
+        exc_tb: typing.Optional[TracebackType] = None,
     ) -> None:
         await super().__aexit__(exc_type, exc_val, exc_tb)
         await self.exit_stack.__aexit__(exc_type, exc_val, exc_tb)
