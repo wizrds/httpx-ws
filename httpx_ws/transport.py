@@ -32,9 +32,10 @@ class UnhandledWebSocketEvent(ASGIWebSocketTransportError):
 
 
 class ASGIWebSocketAsyncNetworkStream(AsyncNetworkStream):
-    def __init__(self, app: ASGIApp, scope: Scope) -> None:
+    def __init__(self, app: ASGIApp, scope: Scope, task_group: anyio.abc.TaskGroup) -> None:
         self.app = app
         self.scope = scope
+        self._task_group = task_group
         self._receive_queue: queue.Queue[Message] = queue.Queue()
         self._send_queue: queue.Queue[Message] = queue.Queue()
         self.connection = wsproto.WSConnection(wsproto.ConnectionType.SERVER)
@@ -49,12 +50,8 @@ class ASGIWebSocketAsyncNetworkStream(AsyncNetworkStream):
                 "Cannot use ASGIWebSocketAsyncNetworkStream in a context manager twice"
             )
         self._aentered = True
+        self._task_group.start_soon(self._run)
         async with contextlib.AsyncExitStack() as stack:
-            self._task_group = await stack.enter_async_context(
-                anyio.create_task_group()
-            )
-            self._task_group.start_soon(self._run)
-
             await self.send({"type": "websocket.connect"})
             message = await self.receive()
 
@@ -166,7 +163,20 @@ class ASGIWebSocketAsyncNetworkStream(AsyncNetworkStream):
 class ASGIWebSocketTransport(ASGITransport):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.exit_stack: typing.Optional[contextlib.AsyncExitStack] = None
+        self.exit_stacks: list[contextlib.AsyncExitStack] = []
+
+    async def __aenter__(self) -> "ASGIWebSocketTransport":
+        async with contextlib.AsyncExitStack() as stack:
+            self._task_group = await stack.enter_async_context(
+                anyio.create_task_group()
+            )
+            self.exit_stack = stack.pop_all()
+
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> typing.Union[bool, None]:
+        await super().__aexit__(exc_type, exc_val, exc_tb)
+        return await self.exit_stack.__aexit__(exc_type, exc_val, exc_tb)
 
     async def handle_async_request(self, request: Request) -> Response:
         scheme = request.url.scheme
@@ -203,17 +213,25 @@ class ASGIWebSocketTransport(ASGITransport):
         assert isinstance(request.stream, AsyncByteStream)
 
         self.scope = scope
-        async with ASGIWebSocketAsyncNetworkStream(self.app, self.scope) as s:  # type: ignore[arg-type]
-            stream, accept_response = s
-            accept_response_lines = accept_response.decode("utf-8").splitlines()
-            headers = [
-                typing.cast(tuple[str, str], line.split(": ", 1))
-                for line in accept_response_lines[1:]
-                if line.strip() != ""
-            ]
-
-            return Response(
-                status_code=101,
-                headers=headers,
-                extensions={"network_stream": stream},
+        async with contextlib.AsyncExitStack() as stack:
+            stream, accept_response = await stack.enter_async_context(
+                ASGIWebSocketAsyncNetworkStream(self.app, self.scope, self._task_group)  # type: ignore[arg-type]
             )
+            self.exit_stacks.append(stack.pop_all())
+
+        accept_response_lines = accept_response.decode("utf-8").splitlines()
+        headers = [
+            typing.cast(tuple[str, str], line.split(": ", 1))
+            for line in accept_response_lines[1:]
+            if line.strip() != ""
+        ]
+
+        return Response(
+            status_code=101,
+            headers=headers,
+            extensions={"network_stream": stream},
+        )
+
+    async def aclose(self) -> None:
+        for stack in self.exit_stacks[::-1]:
+            await stack.aclose()

@@ -5,6 +5,7 @@ from typing import Any
 import httpx
 import pytest
 import wsproto
+from anyio import create_task_group
 from starlette.applications import Starlette
 from starlette.responses import PlainTextResponse
 from starlette.routing import Route, WebSocketRoute
@@ -61,7 +62,10 @@ class TestASGIWebSocketAsyncNetworkStream:
                 received_messages.append(message)
 
         connection = wsproto.connection.Connection(wsproto.connection.CLIENT)
-        async with ASGIWebSocketAsyncNetworkStream(app, scope) as (stream, _):
+        async with (
+            create_task_group() as tg,
+            ASGIWebSocketAsyncNetworkStream(app, scope, tg) as (stream, _),
+        ):
             text_event = wsproto.events.TextMessage("CLIENT_MESSAGE")
             await stream.write(connection.send(text_event))
 
@@ -84,7 +88,10 @@ class TestASGIWebSocketAsyncNetworkStream:
             await receive()
 
         connection = wsproto.connection.Connection(wsproto.connection.CLIENT)
-        async with ASGIWebSocketAsyncNetworkStream(app, scope) as (stream, _):
+        async with (
+            create_task_group() as tg,
+            ASGIWebSocketAsyncNetworkStream(app, scope, tg) as (stream, _),
+        ):
             with pytest.raises(UnhandledWebSocketEvent):
                 ping_event = wsproto.events.Ping(b"PING")
                 await stream.write(connection.send(ping_event))
@@ -98,7 +105,10 @@ class TestASGIWebSocketAsyncNetworkStream:
 
         connection = wsproto.connection.Connection(wsproto.connection.CLIENT)
         events = []
-        async with ASGIWebSocketAsyncNetworkStream(app, scope) as (stream, _):
+        async with (
+            create_task_group() as tg,
+            ASGIWebSocketAsyncNetworkStream(app, scope, tg) as (stream, _),
+        ):
             for _ in range(3):
                 data = await stream.read(4096)
                 connection.receive_data(data)
@@ -115,7 +125,10 @@ class TestASGIWebSocketAsyncNetworkStream:
             await send({"type": "websocket.accept"})
             await send({"type": "websocket.foo"})
 
-        async with ASGIWebSocketAsyncNetworkStream(app, scope) as (stream, _):
+        async with (
+            create_task_group() as tg,
+            ASGIWebSocketAsyncNetworkStream(app, scope, tg) as (stream, _),
+        ):
             with pytest.raises(UnhandledASGIMessageType):
                 await stream.read(4096)
 
@@ -123,19 +136,27 @@ class TestASGIWebSocketAsyncNetworkStream:
         async def app(scope, receive, send):
             await send({"type": "websocket.close", "code": 1000, "reason": ""})
 
-        with pytest.raises(WebSocketDisconnect):
-            async with ASGIWebSocketAsyncNetworkStream(app, scope):
+        with pytest.raises(ExceptionGroup) as excinfo:
+            async with (
+                create_task_group() as tg,
+                ASGIWebSocketAsyncNetworkStream(app, scope, tg),
+            ):
                 pass
+        assert excinfo.group_contains(WebSocketDisconnect)
 
     async def test_exception(self, scope):
         async def app(scope, receive, send):
             raise Exception("Error")
 
-        with pytest.raises(WebSocketDisconnect) as excinfo:
-            async with ASGIWebSocketAsyncNetworkStream(app, scope):
-                pass
-        assert excinfo.value.code == 1011
-        assert excinfo.value.reason == "Error"
+        with pytest.raises(ExceptionGroup) as excinfo:
+            async with (
+                create_task_group() as tg,
+                ASGIWebSocketAsyncNetworkStream(app, scope, tg),
+            ):
+                    pass
+        assert excinfo.group_contains(WebSocketDisconnect)
+        assert excinfo.value.exceptions[0].code == 1011
+        assert excinfo.value.exceptions[0].reason == "Error"
 
 
 @pytest.fixture
