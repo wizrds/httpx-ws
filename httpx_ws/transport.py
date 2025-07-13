@@ -1,6 +1,7 @@
 import contextlib
 import queue
 import typing
+from types import TracebackType
 
 import anyio
 import wsproto
@@ -176,9 +177,14 @@ class ASGIWebSocketTransport(ASGITransport):
 
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> typing.Union[bool, None]:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None = None,
+        exc_value: BaseException | None = None,
+        traceback: TracebackType | None = None,
+    ) -> None:
         await super().__aexit__(exc_type, exc_val, exc_tb)
-        return await self.exit_stack.__aexit__(exc_type, exc_val, exc_tb)
+        await self.exit_stack.__aexit__(exc_type, exc_val, exc_tb)
 
     async def handle_async_request(self, request: Request) -> Response:
         scheme = request.url.scheme
