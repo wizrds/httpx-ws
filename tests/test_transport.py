@@ -1,5 +1,6 @@
 import base64
 import secrets
+import sys
 from typing import Any
 
 import httpx
@@ -19,6 +20,9 @@ from httpx_ws.transport import (
     UnhandledASGIMessageType,
     UnhandledWebSocketEvent,
 )
+
+if sys.version_info < (3, 11):
+    from exceptiongroup import ExceptionGroup
 
 
 @pytest.fixture
