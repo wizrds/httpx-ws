@@ -1241,8 +1241,7 @@ async def _aconnect_ws(
 
     async with client.stream("GET", url, headers=headers, **kwargs) as response:
         if response.status_code != 101:
-            if response.headers.get("content-length", "0") != "0":
-                await response.aread()
+            await response.aread()
             raise WebSocketUpgradeError(response)
 
         session = session_class(
